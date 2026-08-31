@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>轻量化深度学习风噪检测算法调研（面向双通道语音输入）</title>
+<style>
+  :root{
+    --bg:#0f141b; --panel:#161d27; --panel2:#1c2530; --border:#2a3542;
+    --text:#dce3ec; --text-dim:#9aa8b8; --accent:#4da3ff; --accent2:#37c8a8;
+    --warn:#e0a03c; --bad:#e06060; --good:#4fc06a; --code-bg:#0a0e14; --toc-w:280px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{font-family:"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg);
+       color:var(--text); line-height:1.9; font-size:16.5px;}
+  #toc{position:fixed; left:0; top:0; bottom:0; width:var(--toc-w); background:var(--panel);
+       border-right:1px solid var(--border); padding:22px 16px; overflow-y:auto; z-index:100;}
+  #toc h2{font-size:15px; color:var(--accent); margin-bottom:12px;}
+  #toc a{display:block; color:var(--text-dim); text-decoration:none; padding:5px 10px;
+         border-radius:6px; font-size:13.5px; border-left:2px solid transparent; margin-bottom:2px;}
+  #toc a:hover{background:var(--panel2); color:var(--text);}
+  #toc ul{margin-left:12px;}
+  main{margin-left:var(--toc-w); padding:36px 52px 120px; max-width:1180px;}
+  header.hero{border:1px solid var(--border); border-radius:14px;
+    background:linear-gradient(135deg,#16202e 0%,#101722 100%);
+    padding:32px 38px; margin-bottom:40px;}
+  header.hero h1{font-size:25px; line-height:1.5; margin-bottom:10px;}
+  header.hero .meta{color:var(--text-dim); font-size:14px;}
+  h1{font-size:26px; line-height:1.5; margin:34px 0 16px; color:var(--accent);}
+  h2{font-size:21px; color:var(--accent); padding-bottom:8px; margin:36px 0 16px;
+     border-bottom:1px solid var(--border);}
+  h3{font-size:18px; color:var(--accent2); margin:24px 0 10px;}
+  h4{font-size:16.5px; color:var(--text); margin:18px 0 8px;}
+  p{margin-bottom:12px;}
+  ul,ol{margin:0 0 14px 26px;}
+  li{margin-bottom:6px;}
+  strong{color:#fff;}
+  a{color:var(--accent); text-decoration:none; word-break:break-all;}
+  a:hover{text-decoration:underline;}
+  blockquote{border-left:3px solid var(--accent); background:var(--panel);
+    padding:12px 18px; margin:14px 0; color:var(--text-dim); border-radius:0 8px 8px 0;}
+  blockquote p{margin-bottom:0;}
+  table{width:100%; border-collapse:collapse; margin:18px 0 24px; font-size:15.5px;}
+  th{background:var(--panel2); color:var(--accent); text-align:left;
+     padding:11px 13px; border:1px solid var(--border); font-weight:600;}
+  td{padding:11px 13px; border:1px solid var(--border); vertical-align:top;}
+  tr:nth-child(even) td{background:rgba(255,255,255,0.022);}
+  code{background:var(--code-bg); color:var(--accent2); padding:2px 6px;
+       border-radius:4px; font-family:Consolas,Monaco,monospace; font-size:14.5px;}
+  pre{background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+      padding:16px 18px; overflow-x:auto; margin:14px 0 20px;}
+  pre code{background:none; color:#c9d6e4; padding:0; font-size:14px; line-height:1.7;}
+  hr{border:none; border-top:1px solid var(--border); margin:32px 0;}
+  @media (max-width:900px){
+    #toc{display:none;} main{margin-left:0; padding:24px 20px 80px;}
+  }
+</style>
+</head>
+<body>
+<nav id="toc">
+  <h2>目录</h2>
+  <div class="toc">
+<ul>
+<li><a href="#1">1. 问题定义与风噪物理特性</a><ul>
+<li><a href="#11">1.1 风噪与声学噪声的本质区别</a></li>
+<li><a href="#12">1.2 检测器的角色定位</a></li>
+</ul>
+</li>
+<li><a href="#2">2. 传统（非深度）双通道检测基线 —— 深度模型的特征工程基础</a><ul>
+<li><a href="#21-kates">2.1 双麦去相关 / 复相干检测（Kates 谱系）</a></li>
+<li><a href="#22-nelke">2.2 单通道谱特征检测（Nelke 谱系）</a></li>
+<li><a href="#23">2.3 多方法融合判决（专利工程实践）</a></li>
+</ul>
+</li>
+<li><a href="#3">3. 深度学习检测方案（调研重点）</a><ul>
+<li><a href="#31-qualcomm-cnn-wo2026151534a120252026">3.1 Qualcomm：端到端 CNN 风噪检测与估计（WO2026151534A1，2025/2026）</a></li>
+<li><a href="#32-rhodesintelrtwd-anwsarxiv171000082-2017">3.2 Rhodes（Intel）：RTWD + ANWS，多麦低功耗设备（arXiv:1710.00082, 2017）</a></li>
+<li><a href="#33-mirabiliifraunhofer-iis-fau2023">3.3 Mirabilii（Fraunhofer IIS / FAU）：多通道风噪检测器与风速估计（博士论文，2023）</a></li>
+<li><a href="#34-hissneticassp-2023">3.4 耳机端低资源场景检测（HiSSNet，ICASSP 2023）</a></li>
+<li><a href="#35">3.5 国内专利中的轻量检测实践</a></li>
+<li><a href="#36-dewinderarxiv2409061372024">3.6 补充：DeWinder（arXiv:2409.06137，2024）——超声感知辅助风噪抑制</a></li>
+</ul>
+</li>
+<li><a href="#4-">4. 轻量化抑制/重建模型（检测的下游，或检测-抑制一体化）</a><ul>
+<li><a href="#41-windnetlitefraunhofer-iisarxiv2507018212025-wnr">4.1 WindNetLite（Fraunhofer IIS，arXiv:2507.01821，2025）—— 当前轻量化 WNR 的最佳参照</a></li>
+<li><a href="#42-ulcnetshetu-et-al-icassp-2024">4.2 ULCNet（Shetu et al., ICASSP 2024）</a></li>
+<li><a href="#43">4.3 其他基准（非轻量，仅作性能上界参考）</a></li>
+<li><a href="#44-aizip-zenvoice-bone-bosch-bma5502024best-of-sensors-award">4.4 产业方案：Aizip ZenVoice Bone + Bosch BMA550（2024，Best of Sensors Award）</a></li>
+</ul>
+</li>
+<li><a href="#5">5. 方案对比总表</a></li>
+<li><a href="#6">6. 公开数据集与数据构建</a></li>
+<li><a href="#7-2-mic-fb-mic-vpu">7. 面向本项目（单耳 2 外部气导 mic + fb mic + VPU）的设计建议</a><ul>
+<li><a href="#71">7.1 通道选择：三种"双通道"组合的对比</a></li>
+<li><a href="#72">7.2 推荐结构（检测专用轻量网络）</a></li>
+<li><a href="#73">7.3 训练与评测要点</a></li>
+</ul>
+</li>
+<li><a href="#8">8. 参考文献与链接</a></li>
+</ul>
+</div>
+
+</nav>
+<main>
+<h1 id="_1">轻量化深度学习风噪检测算法调研（面向双通道语音输入）</h1>
+<blockquote>
+<p>调研时间：2026-08-31
+适用场景：TWS 耳机通话链路风噪检测（FreeBuds 单耳 3MIC + VPU 架构），双通道输入，模型需满足端侧实时与低功耗约束
+结论先行：<strong>当前最有参考价值的三条技术路线为 (1) 双麦低频相干性特征 + 轻量序列模型（检测专用，&lt;100K 参数）；(2) ULCNet/WindNetLite 式子带双编码器 CRN（检测+抑制一体化，~249K 参数 / 73MHz）；(3) "受风通道 + 免风通道"（气导 mic vs VPU）的通道间一致性检测——这是本产品硬件独有的差异化路线。</strong></p>
+</blockquote>
+<hr />
+<h2 id="1">1. 问题定义与风噪物理特性</h2>
+<h3 id="11">1.1 风噪与声学噪声的本质区别</h3>
+<p>风噪不是传播声波，而是气流冲刷麦克风膜片产生的湍流压力起伏（"幻影噪声"），其特性决定了检测算法的设计约束：</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>风噪</th>
+<th>语音/普通声学噪声</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>能量分布</td>
+<td>集中于低频，主能量通常 &lt;500Hz，可感知成分一般 &lt;4kHz</td>
+<td>语音谐波可延伸至 8kHz</td>
+</tr>
+<tr>
+<td>平稳性</td>
+<td>强非平稳，阵风毫秒级突变</td>
+<td>准平稳（噪声）/短时平稳（语音）</td>
+</tr>
+<tr>
+<td>通道间关系</td>
+<td>近距离双麦间近似<strong>不相关</strong>（紧密阵列下低频存在有限相干，服从 Corcos 模型）</td>
+<td>传播声波在紧密双麦间<strong>高相干</strong></td>
+</tr>
+<tr>
+<td>频谱形状</td>
+<td>大致随频率线性衰减（负斜率）</td>
+<td>有谐波结构</td>
+</tr>
+<tr>
+<td>谱细节</td>
+<td>平滑谱包络、无精细结构</td>
+<td>有精细结构（谐波、共振峰）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="12">1.2 检测器的角色定位</h3>
+<p>风噪检测（WND）是风噪抑制（WNR）系统的前端开关，其输出在产品中的典型用途：</p>
+<ol>
+<li><strong>通话链路</strong>：输出风噪置信度 / 风 PSD，供降噪前端做低频加权或频带掩码；</li>
+<li><strong>ANC 链路</strong>：检测到风噪时关闭/衰减前馈降噪（前馈 mic 受风污染会把风噪"降噪"成放大），切换至反馈为主；</li>
+<li><strong>波束/多通道处理</strong>：风噪期间冻结自适应波束系数（风噪违反平面波假设，会污染波束收敛）；</li>
+<li><strong>麦克风增益管理</strong>：按风噪强度调整前馈 mic 增益（见 CN114697786A 专利实践）。</li>
+</ol>
+<blockquote>
+<p>对本项目的直接意义：SpatialNet 适配链路中，风噪 flag 可作为 v2 方案 NarrowBand 融合的先验——检测到风噪时应降低两颗外部气导 mic 低频的融合权重、提升 VPU 权重（VPU 物理免疫风噪）。</p>
+</blockquote>
+<hr />
+<h2 id="2">2. 传统（非深度）双通道检测基线 —— 深度模型的特征工程基础</h2>
+<p>深度方案的特征设计几乎全部继承自这一类工作，实现轻量化时尤其如此（特征做得越有效，模型可以越小）。</p>
+<h3 id="21-kates">2.1 双麦去相关 / 复相干检测（Kates 谱系）</h3>
+<ul>
+<li><strong>原理</strong>：风噪在两颗近距离麦克风间不相关，而语音等传播声波高相干。计算双通道复相干函数，低频段（如 &lt;1kHz）相干性骤降即判风噪。</li>
+<li><strong>代表文献</strong>：</li>
+<li>Kates, "Wind noise reduction for hearing aids", 2008（助听器双麦检测奠基工作）</li>
+<li>Nelke &amp; Vary, "Dual microphone wind noise reduction by exploiting the complex coherence", ITG Speech Communication, 2014</li>
+<li>Park et al., "Coherence-based dual microphone wind noise reduction by Wiener filtering", 2016</li>
+<li><strong>商用验证</strong>：Phonak 助听器双麦克风风噪检测（其 Speech in Wind 功能进一步利用双耳流传输，用受风较小一侧的信号辅助对侧，与本产品"VPU 免风参考"思想同源）。</li>
+<li><strong>工程注意</strong>：相干值受语音存在干扰——语音活跃段相干被语音拉高，会造成漏检；需要结合能量门限与 SPP（语音存在概率）联合判决。</li>
+</ul>
+<h3 id="22-nelke">2.2 单通道谱特征检测（Nelke 谱系）</h3>
+<ul>
+<li>Nelke, Jax, Vary, "Wind Noise Detection: Signal Processing Concepts for Speech Communication", DAGA 2016：提出三种检测特征——
+  1. <strong>短时均值（STM）</strong>：风噪信号均值非零偏移；
+  2. <strong>谱形状</strong>：风噪谱近似负斜率线性衰减，对低频谱做负斜率拟合（NSF）；
+  3. <strong>能量分布</strong>：风噪能量集中于极低频，计算低频/全带能量比。
+  全部实时实现于 20ms 帧、短时谱域，复杂度极低。</li>
+<li>Nelke et al., "Single microphone wind noise PSD estimation using signal centroids", ICASSP 2014：引入"信号质心"特征，兼做检测与风噪 PSD 估计，明确以低复杂度、低内存为设计目标。</li>
+<li><strong>配套风噪模型</strong>：Nelke &amp; Vary, IWAENC 2014 提出 AR 谱包络 + Markov 链时序统计的风噪生成模型（MATLAB 开源），至今仍是合成训练数据的标准工具之一。</li>
+</ul>
+<h3 id="23">2.3 多方法融合判决（专利工程实践）</h3>
+<ul>
+<li><strong>Broadcom US2012/0121100</strong>：双通道多方法检测（每个通道跑 2 种以上检测器，硬/软判决逻辑组合），输出每通道独立的风噪检测信号——工程上对误检/漏检的鲁棒性设计值得借鉴。</li>
+<li><strong>某 ANC 耳机专利（US20210264893）</strong>：两颗外部 mic 分低/中/高三频段分别计算平均相关性与能量，按"相关性低于阈值 + 能量高于阈值"判强风噪，并结合加速度计运动状态动态调整前馈/反馈滤波器系数——分频段相关性判决是对"全带不相关假设"的细化。</li>
+<li><strong>国内 ANC 耳机专利（CN，主动降噪控制类）</strong>：利用双耳两只前馈 mic 的频域归一化互相关，平滑后抽取 93.75–781.25Hz 频带判风噪；命中后关前馈、增反馈。频带抽取即风噪主能量区，简单有效。</li>
+</ul>
+<p><strong>小结</strong>：传统方法的共同判别轴是「低频 + 不相关 + 负斜率谱」。深度学习的价值在于：把这些手工特征（及人想不到的非线性组合）交给小网络学习，用监督数据解决阈值标定难、语音/低频噪声混淆、门限场景漂移三大痛点。</p>
+<hr />
+<h2 id="3">3. 深度学习检测方案（调研重点）</h2>
+<h3 id="31-qualcomm-cnn-wo2026151534a120252026">3.1 Qualcomm：端到端 CNN 风噪检测与估计（WO2026151534A1，2025/2026）</h3>
+<p>当前工业界最贴近"轻量深度检测"目标的一份专利。</p>
+<ul>
+<li><strong>架构</strong>：原始音频（或其表征）输入由 Conv1d 块（Conv1d + BatchNorm1d + ReLU）堆叠的 encoder，4 个卷积块生成特征图，端到端输出<strong>每个时间步段的风噪概率分布</strong>，与预设阈值比较输出判决；</li>
+<li><strong>处理粒度</strong>：按 200ms 时间段（16kHz 下 3200 采样点）分段推理，兼顾响应速度与统计稳定性；</li>
+<li><strong>任务形式</strong>：检测与"风噪估计"（强度/PSD）联合建模，支持 DNN/RNN/Transformer 等多种骨干，但专利主张以 CNN 为主（轻量取向）；</li>
+<li><strong>输入说明</strong>：专利未限定双通道，但架构与分段策略可直接移植双通道输入（两路波形/谱拼接进 encoder）。</li>
+</ul>
+<h3 id="32-rhodesintelrtwd-anwsarxiv171000082-2017">3.2 Rhodes（Intel）：RTWD + ANWS，多麦低功耗设备（arXiv:1710.00082, 2017）</h3>
+<p>智能眼镜场景的多麦风噪检测+抑制系统，是"低功耗可穿戴多麦风噪处理"的早期完整参考：</p>
+<ul>
+<li><strong>RTWD（检测）</strong>：两组低维信号特征做风噪判别——刻意不用大网络，满足低能耗约束（此部分本质是特征法，但其特征设计面向多通道）；</li>
+<li><strong>ANWS（抑制）</strong>：神经网络从被风噪污染的谱区域重建佩戴者语音——只在受风噪影响最严重的谱区做重建，避免全带重建的算力浪费；</li>
+<li><strong>重要结论</strong>：MVDR/GSC 等自适应波束对<strong>扩散性风噪基本无效</strong>（这与本项目差分波束在风噪场景的行为一致，值得在 v2 方案中明确规避策略）；谱减法因风噪非平稳同样失效。</li>
+</ul>
+<h3 id="33-mirabiliifraunhofer-iis-fau2023">3.3 Mirabilii（Fraunhofer IIS / FAU）：多通道风噪检测器与风速估计（博士论文，2023）</h3>
+<p>学术上最系统的多通道风噪工作，其博士论文（Wind Noise Analysis, Synthesis, and Reduction for Speech Enhancement Using Compact Microphone Arrays）包含三个与本项目直接相关的贡献：</p>
+<ol>
+<li><strong>紧密双麦风噪并非完全不相关</strong>：用流体力学的 <strong>Corcos 模型</strong>描述风噪空间相干——相干随频率、风速、麦克风向距、风向各向异性衰减。这解释了为什么"双麦不相关"硬阈值判决在 TWS 的 cm 级间距下会漏检强风噪（低频相干非零）。<strong>对双通道检测器的启示：把互谱相干函数（而非单一相干值）作为特征整体输入网络，让模型自己学相干曲线形状与风噪的映射。</strong></li>
+<li><strong>多通道风噪检测器</strong>：基于语音（传播、相干）与风噪（湍流、弱相干）的空间特性对比设计；</li>
+<li><strong>风速/风向估计</strong>：以成对空间相干函数为输入特征的前馈网络回归风速——证明"相干函数特征 + 小 MLP"即可支撑回归级任务，检测任务只会更轻。
+   - 相关论文：Mirabilii &amp; Habets, "Spatial Coherence-Aware Multi-Channel Wind Noise Reduction", IEEE/ACM TASLP, 2020（含递归空间相干矩阵估计）；"Wind speed and direction estimation based on the spatial coherence of closely spaced microphones", JASA, 2022。
+   - 配套数据生成框架：Mirabilii et al., "Simulating wind noise with airflow speed-dependent characteristics", IWAENC 2022（Corcos 相干可控的多通道风噪仿真器，可直接用于训练数据扩增）。</li>
+</ol>
+<h3 id="34-hissneticassp-2023">3.4 耳机端低资源场景检测（HiSSNet，ICASSP 2023）</h3>
+<ul>
+<li>HiSSNet（Microsoft）：面向降噪耳机的声音事件检测+说话人识别，<strong>层级原型网络（hierarchical prototypical network）</strong>解决少样本类别（各事件类别样本不均衡，风噪等罕见类别尤其如此）；</li>
+<li>输入为耳机 ANC mic 双通道信号；模型为边缘端设计，验证了"双通道耳机 mic + 轻量分类网络"做开放场景判别的可行性；</li>
+<li>对风噪检测的启示：风噪正样本（真实强风录音）稀缺，原型网络/度量学习是比普通 softmax 分类更稳的少样本范式。</li>
+</ul>
+<h3 id="35">3.5 国内专利中的轻量检测实践</h3>
+<ul>
+<li><strong>CN121751042A（腾达智科技，2025）</strong>：双麦（耳外+耳内，45° 夹角）→ 40 维 Mel 频谱特征 → <strong>嵌入式轻量 CNN（参数量 ≤5KB）</strong> → Softmax 四分类（交通噪声/人声/风噪/安静），按类别动态加载降噪参数。证明了 KB 级 CNN 在耳机 MCU 上做含风噪的场景分类是可行的（虽然其指标为专利自述，未见第三方评测）。</li>
+<li><strong>CN114697786A</strong>：前馈 mic 采集环境声 → 提取音频特征向量 → 训练好的 DNN 噪声识别模型判风噪 → 存在则按强度调 mic 增益。</li>
+<li><strong>CN116386654A</strong>：风噪分析采用双通道相关度（按负采样点计数计算相关度，复杂度极低）或低频能量匹配风速；命中后<strong>低频段走 DNN（编码器+RNN+解码器）、高频段走非神经算法</strong>的分治抑制——低频集中算力正是 WindNetLite 同款思想在专利里的体现。</li>
+</ul>
+<h3 id="36-dewinderarxiv2409061372024">3.6 补充：DeWinder（arXiv:2409.06137，2024）——超声感知辅助风噪抑制</h3>
+<p>用与 mic 同置的超声扬声器发射 20/21kHz 音调，气流的多普勒调制直接反映风速，与 DCCRN/DEMUCS 谱域特征融合后显著改善低 SNR 风噪抑制。<strong>对本项目的启发</strong>：VPU 扮演的就是"独立于气导通道的物理传感器"角色，DeWinder 验证了"气导 + 辅助传感"多模态融合范式的有效性（其 DCCRN 融合结构可参考）。</p>
+<hr />
+<h2 id="4-">4. 轻量化抑制/重建模型（检测的下游，或检测-抑制一体化）</h2>
+<p>调研检测算法时必须同时看抑制侧的复杂度基准，因为"检测置信度 + 轻量抑制"往往是一个整体交付物。</p>
+<h3 id="41-windnetlitefraunhofer-iisarxiv2507018212025-wnr">4.1 WindNetLite（Fraunhofer IIS，arXiv:2507.01821，2025）—— 当前轻量化 WNR 的最佳参照</h3>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务</td>
+<td>单通道风噪抑制（wind rejection 直接估计目标 / wind extraction 估计风噪再相减两种范式）</td>
+</tr>
+<tr>
+<td>参数量</td>
+<td><strong>249K</strong></td>
+</tr>
+<tr>
+<td>算力</td>
+<td><strong>约 73MHz</strong>，≈ 单核 ARM Cortex-A53 的 0.05%；RTF 为 ULCNet 的 40%</td>
+</tr>
+<tr>
+<td>结构</td>
+<td>ULCNet 底座 + <strong>双编码器</strong>：低频子带（前 5 个子带，4 层卷积 + GRU128 重点处理）+ 高频子带（3 层卷积 + 平均池化轻量处理）；两阶段掩码：先估实值幅度 mask，再精化为复数 mask；幂律压缩 α（rejection 模式最优 α≈0.5，extraction 模式 α≈1）</td>
+</tr>
+<tr>
+<td>数据</td>
+<td>自录 10h 风噪库 + AudioSet 混合约 200h；测试 VCTK 语音 / MUSDB18 音乐，SNR -20~20dB</td>
+</tr>
+<tr>
+<td>指标</td>
+<td>PESQ 2.26 / SI-SDR 12.71（rejection），MUSHRA 与 ULCNet 相当</td>
+</tr>
+</tbody>
+</table>
+<p>设计要点（可直接迁移到检测模型）：
+- <strong>非对称双编码器</strong>：风噪 &lt;4kHz，低频子带给足算力、高频子带严重降采样——检测模型同理，输入可只取低频子带，特征维度大幅下降；
+- <strong>逐帧因果处理</strong>：满足嵌入式实时约束（对比 U-Net 系方法只能离线块处理）；
+- 注意 Pith 评审指出的局限：α 在测试集上调优、与 ULCNet 的对比并非同任务重训、&lt;4kHz 假设未用自录数据谱统计验证——引用其结论时应留意。</p>
+<h3 id="42-ulcnetshetu-et-al-icassp-2024">4.2 ULCNet（Shetu et al., ICASSP 2024）</h3>
+<p>"Ultra low complexity deep learning based noise suppression"——子带处理 + 两阶段实/复掩码的通用超低复杂度语音增强框架，WindNetLite 的底座。若本项目后续要做"检测 flag + 风噪抑制"一体化，ULCNet 谱系（含 Shetu et al. IWAENC 2024 低信噪比对比、混合回声+噪声方案）是最成熟的端侧底座。</p>
+<h3 id="43">4.3 其他基准（非轻量，仅作性能上界参考）</h3>
+<ul>
+<li>U-Net 系：Lee et al., ICCE 2020（单通道户外风噪）；Lin et al., IEEE Sensors Journal 2024（助听器 U-Net + 麦克风结构设计）——2D 卷积、非逐帧，不满足嵌入式约束；</li>
+<li>双向 LSTM（Hao et al. 谱系）、扩散随机再生模型（arXiv:2306.12867，Interspeech 2023 方向）——质量高但算力重，仅作离线上界；</li>
+<li>Korhonen 等深度 RNN 风噪抑制（助听器，双耳双 mic 输入，JSLHR 2018）：主观可懂度提升的早期循证，说明双通道输入对风噪任务确有增益。</li>
+</ul>
+<h3 id="44-aizip-zenvoice-bone-bosch-bma5502024best-of-sensors-award">4.4 产业方案：Aizip ZenVoice Bone + Bosch BMA550（2024，Best of Sensors Award）</h3>
+<ul>
+<li>TWS 骨导 VPU（BMA550，带宽至 2350Hz）+ 轻量神经网络（Zenet 架构）；</li>
+<li>官方指标：模型内存 60–300KB，处理与内存需求降低 10 倍，可在 -15dB SNR 及 <strong>85dB 风噪</strong>下保持语音（自述指标）；</li>
+<li><strong>与本产品硬件配置直接可比</strong>（气导 mic + 骨导 VPU），其"骨导低频干净、高频缺失 → 用网络重建高频"的分工与本项目 v2 的 NarrowBand/CrossBand 思路一致，可作为竞品 benchmark。</li>
+</ul>
+<hr />
+<h2 id="5">5. 方案对比总表</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>年份</th>
+<th>通道</th>
+<th>模型/方法</th>
+<th>参数量/复杂度</th>
+<th>输出</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kates / Nelke 双麦复相干</td>
+<td>2008–2016</td>
+<td>双</td>
+<td>相干阈值</td>
+<td>极低（纯 DSP）</td>
+<td>硬判决</td>
+<td>语音活跃段易漏检</td>
+</tr>
+<tr>
+<td>Nelke STM/NSF/质心</td>
+<td>2014–2016</td>
+<td>单</td>
+<td>谱特征阈值</td>
+<td>极低</td>
+<td>硬判决 + 风 PSD</td>
+<td>特征工程金标准</td>
+</tr>
+<tr>
+<td>RTWD (Intel)</td>
+<td>2017</td>
+<td>多</td>
+<td>低维特征两级判决</td>
+<td>低</td>
+<td>软判决</td>
+<td>多麦低功耗可穿戴早期参考</td>
+</tr>
+<tr>
+<td>Qualcomm 专利</td>
+<td>2026</td>
+<td>单/多</td>
+<td>Conv1d 块端到端 CNN</td>
+<td>轻量（未披露）</td>
+<td>逐 200ms 段概率 + 估计</td>
+<td>工业界最直接的对标</td>
+</tr>
+<tr>
+<td>Mirabilii 检测器/风速估计</td>
+<td>2020–2023</td>
+<td>双/多</td>
+<td>相干函数特征 + FNN</td>
+<td>低（小 MLP）</td>
+<td>检测 + 风速回归</td>
+<td>Corcos 模型理论支撑最完整</td>
+</tr>
+<tr>
+<td>HiSSNet</td>
+<td>2023</td>
+<td>双（耳机）</td>
+<td>层级原型网络</td>
+<td>耳机端可部署</td>
+<td>多类事件（含风噪）</td>
+<td>少样本范式</td>
+</tr>
+<tr>
+<td>腾达智专利</td>
+<td>2025</td>
+<td>双</td>
+<td>40 维 Mel + CNN</td>
+<td><strong>≤5KB</strong></td>
+<td>4 类场景</td>
+<td>KB 级可行性佐证</td>
+</tr>
+<tr>
+<td>WindNetLite</td>
+<td>2025</td>
+<td>单</td>
+<td>子带双编码器 CRN + GRU</td>
+<td><strong>249K / 73MHz</strong></td>
+<td>复数 mask（抑制）</td>
+<td>轻量 WNR SOTA 参照</td>
+</tr>
+<tr>
+<td>ULCNet</td>
+<td>2024</td>
+<td>单</td>
+<td>子带两阶段掩码</td>
+<td>超低（ICASSP'24）</td>
+<td>复数 mask（抑制）</td>
+<td>检测-抑制一体化底座</td>
+</tr>
+<tr>
+<td>ZenVoice Bone</td>
+<td>2024</td>
+<td>mic+VPU</td>
+<td>轻量 NN（Zenet）</td>
+<td>60–300KB 内存</td>
+<td>增强语音</td>
+<td>与本产品硬件同类</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6">6. 公开数据集与数据构建</h2>
+<table>
+<thead>
+<tr>
+<th>数据/工具</th>
+<th>内容</th>
+<th>对双通道检测的价值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>IKS RWTH Wind Noise Database</strong>（Nelke &amp; Vary, IWAENC 2014 配套）</td>
+<td>室内恒定/变化风 × 麦克风间距 2cm/10cm 双麦录音 + 室外真实风，16kHz wav；含 AR+Markov 风噪生成模型 MATLAB 代码</td>
+<td><strong>唯一现成的双麦风噪库，且 2cm 间距接近 TWS 实际尺寸，优先使用</strong></td>
+</tr>
+<tr>
+<td>TUM Wind Noise Dataset（Zenodo 6687982）</td>
+<td>人工生成 + 手机实录风噪样本，137MB</td>
+<td>单通道为主，做数据扩增</td>
+</tr>
+<tr>
+<td>ELG 语音/交通/风噪/通用声分离测试集（Zenodo 4279220）</td>
+<td>AudioSet+VCTK+DNS 混合测试集</td>
+<td>负样本/混淆样本来源</td>
+</tr>
+<tr>
+<td>Mirabilii Corcos 仿真器（IWAENC 2022）</td>
+<td>风速/风向可控的多通道风噪仿真</td>
+<td>双通道训练数据的规模化生成</td>
+</tr>
+<tr>
+<td>AudioSet "Wind" 类</td>
+<td>网络风噪标签音频</td>
+<td>预训练/正样本补充</td>
+</tr>
+</tbody>
+</table>
+<p><strong>数据构建建议</strong>（检测器成败的关键在数据而非结构）：
+1. 正样本：RWTH 双麦库 + 风扇/风洞自采（覆盖佩戴状态、耳机朝向×风向、行走/骑行相对风速），并用 Corcos 仿真器做风速/风向连续化扩增；
+2. 负样本必须覆盖已知混淆项：低频能量大的稳态噪声（公交引擎、地铁、空调）、男性低音语音基音区（60–200Hz 谐波会被"低频+高能量"特征误判）、音乐重低音——这正是 Qualcomm/Mirabilii 用学习法替代固定阈值的核心理由；
+3. 半监督标注：可用传统相干法 + 人工校验生成弱标签，再训练网络，缓解逐帧标注成本。</p>
+<hr />
+<h2 id="7-2-mic-fb-mic-vpu">7. 面向本项目（单耳 2 外部气导 mic + fb mic + VPU）的设计建议</h2>
+<h3 id="71">7.1 通道选择：三种"双通道"组合的对比</h3>
+<table>
+<thead>
+<tr>
+<th>通道组合</th>
+<th>判别机理</th>
+<th>优点</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A：外部气导 mic1 + mic2（推荐主路）</td>
+<td>双麦低频相干性 + 各自低频能量/谱斜率</td>
+<td>与文献/专利验证最充分；风噪只影响两通道，信号对称</td>
+<td>cm 级间距下强风低频相干非零（Corcos），需学相干曲线而非单值阈值</td>
+</tr>
+<tr>
+<td>B：外部气导 mic + fb mic（耳内）</td>
+<td>耳内 mic 被耳机主体遮挡，受风显著更小 → 通道间能量比异常即风噪</td>
+<td>天然"受风/半免风"不对称通道，弱风也敏感</td>
+<td>fb mic 信号含耳道语音泄漏与 ANC 重放泄漏，需先去相关处理</td>
+</tr>
+<tr>
+<td>C：外部气导 mic + VPU</td>
+<td>VPU 拾取颌骨振动，<strong>物理免疫风噪</strong> → 通道间相干性骤降 + 气导低频能量激增即风噪</td>
+<td>免风参考最干净；VPU &lt;1.2kHz 恰好覆盖风噪主能量区；检测结论可直接复用为 v2 融合的先验权重</td>
+<td>VPU 语音信号谱结构与气导差异大，"相干性"需定义为统计依赖而非简单互相关</td>
+</tr>
+</tbody>
+</table>
+<p><strong>建议：主路 A + 辅路 C 做交叉验证。</strong> 两路检测器输出逻辑与（AND 不必严格，可用加权融合），可显著压误检——这正是 Broadcom 专利"多方法软判决组合"的思路。</p>
+<h3 id="72">7.2 推荐结构（检测专用轻量网络）</h3>
+<pre><code>外部mic1 ─┐
+          ├─ STFT → 取 &lt;2kHz 低频子带
+外部mic2 ─┘
+          ├─ 特征：双通道低频对数谱 + 互谱相干(MSC, 平滑) + 通道能量比 + 谱斜率
+          │        （可选拼接 [气导mic, VPU] 一致性特征）
+          ↓
+   子带 Conv1D 编码器（2–3 层，核 (1,3)，对应 WindNetLite 低频编码器配置）
+          ↓
+   单向 GRU（64–128 units，因果逐帧）
+          ↓
+   FC + Sigmoid → 逐帧风噪软概率 p_wind(t)
+          ↓
+   迟滞逻辑（挂起 20–50ms + 计数器防乒乓，专利通行做法）→ 硬 flag + 强度分级
+</code></pre>
+<ul>
+<li><strong>复杂度预算</strong>：检测任务比 WindNetLite 的抑制任务更轻（无解码器、只取低频子带），参考腾达智 5KB 级分类器与 Mirabilii 小 MLP，<strong>目标 &lt;50K 参数 / 个位数 MHz</strong> 是合理且有余量的；</li>
+<li><strong>输出形式</strong>：输出软概率而非硬判决，供下游（ANC 切换、波束冻结、SpatialNet 前端加权）按各自灵敏度取阈值；</li>
+<li><strong>与 v2 方案的联动</strong>：p_wind(t) 高时，NarrowBand 融合自动偏置到 VPU 支路；同时触发差分波束系数冻结，避免风噪污染自适应环节。</li>
+</ul>
+<h3 id="73">7.3 训练与评测要点</h3>
+<ol>
+<li>损失：逐帧 BCE + 少量场景级对比（triplet/原型损失可选，处理风噪样本稀缺，参考 HiSSNet）；</li>
+<li>评测指标：除 frame-level P/R/F1 外，必须报告<strong>检测延迟</strong>（从阵风起到 flag 置位的毫秒数，ANC 切换要求 &lt;100ms）与<strong>误检率</strong>（男性语音、地铁稳态噪声下的假阳性），这两项比 Accuracy 更能暴露工程问题；</li>
+<li>消融：纯手工特征阈值 vs 纯端到端 vs "手工相干特征 + 小 GRU"（预期最后一项性价比最高）。</li>
+</ol>
+<hr />
+<h2 id="8">8. 参考文献与链接</h2>
+<p><strong>深度学习检测/抑制</strong>
+1. Eftekhari et al., "Low-Complexity Neural Wind Noise Reduction for Audio Recordings", arXiv:2507.01821, 2025（WindNetLite, Fraunhofer IIS）. https://arxiv.org/abs/2507.01821
+2. Shetu et al., "Ultra Low Complexity Deep Learning Based Noise Suppression", ICASSP 2024（ULCNet）.
+3. Rhodes, "Real-Time Wind Noise Detection and Suppression with Neural-Based Signal Reconstruction for Multi-Channel, Low-Power Devices", arXiv:1710.00082, 2017. https://arxiv.org/abs/1710.00082
+4. Shashaank et al., "HiSSNet: Sound Event Detection and Speaker Identification Via Hierarchical Prototypical Networks for Low-Resource Headphones", ICASSP 2023.
+5. "Wind Noise Reduction with a Diffusion-based Stochastic Regeneration Model", arXiv:2306.12867, 2023.
+6. DeWinder: "Single-Channel Wind Noise Reduction using Ultrasound Sensing", arXiv:2409.06137, 2024. https://arxiv.org/abs/2409.06137
+7. Korhonen et al., "Use of a Deep Recurrent Neural Network to Reduce Wind Noise...", JSLHR 2018（双耳助听器）.</p>
+<p><strong>多通道相干性理论与方法</strong>
+8. Mirabilii, "Wind Noise Analysis, Synthesis, and Reduction for Speech Enhancement Using Compact Microphone Arrays", 博士论文, FAU, 2023. https://open.fau.de/items/ace82909-db23-4c5b-b980-a326a9a1aa74
+9. Mirabilii &amp; Habets, "Spatial Coherence-Aware Multi-Channel Wind Noise Reduction", IEEE/ACM TASLP 28:1974–1987, 2020. DOI: 10.1109/TASLP.2020.2998328
+10. Mirabilii &amp; Habets, "Wind speed and direction estimation based on the spatial coherence of closely spaced microphones", JASA 151:346–357, 2022. DOI: 10.1121/10.0009276
+11. Mirabilii et al., "Simulating wind noise with airflow speed-dependent characteristics", IWAENC 2022.</p>
+<p><strong>经典特征法</strong>
+12. Nelke, Jax, Vary, "Wind Noise Detection: Signal Processing Concepts for Speech Communication", DAGA 2016. https://pub.dega-akustik.de/DAGA_2016/data/articles/000078.pdf
+13. Nelke et al., "Single microphone wind noise PSD estimation using signal centroids", ICASSP 2014.
+14. Nelke &amp; Vary, "Measurement, Analysis and Simulation of Wind Noise Signals for Mobile Communication Devices", IWAENC 2014（含双麦数据集与风噪模型）.
+15. Nelke 博士论文 "Wind noise reduction: signal processing concepts", RWTH Aachen, 2016.</p>
+<p><strong>专利</strong>
+16. Qualcomm, "Wind noise detection and estimation in audio signals", WO2026151534A1.
+17. Broadcom, "Method and Apparatus For Wind Noise Detection and Suppression Using Multiple Microphones", US2012/0121100.
+18. CN121751042A（腾达智科技，双麦轻量 CNN 场景分类）; CN114697786A（DNN 风噪识别调增益）; CN116386654A（相关性/低频能量风噪分析 + 分频段抑制）; US20210264893（双 mic 分频段相关性 + 运动状态调整 ANC）.</p>
+<p><strong>数据集</strong>
+19. IKS RWTH Wind Noise Database. https://www.iks.rwth-aachen.de/forschung/tools-downloads/databases/wind-noise-database
+20. TUM Wind Noise Dataset, Zenodo 6687982. https://zenodo.org/records/6687982
+21. ELG 分离测试集, Zenodo 4279220.</p>
+<p><strong>产业方案</strong>
+22. Aizip × Bosch Sensortec, ZenVoice Bone + BMA550（2024 Best of Sensors Award）.
+23. Phonak, "Speech in Wind" 技术白皮书（双耳协作风噪处理）.</p>
+</main>
+</body>
+</html>

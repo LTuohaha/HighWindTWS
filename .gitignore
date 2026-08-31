@@ -1,0 +1,28 @@
+# WorkBuddy / 项目缓存（勿上传）
+.workbuddy/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 数据与中间产物
+*.wav
+*.flac
+*.mp3
+*.pcm
+*.npy
+*.npz
+*.ckpt
+*.pth
+*.pt
+*.log
+
+# 编辑器/系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
